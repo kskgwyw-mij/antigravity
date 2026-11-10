@@ -8,6 +8,13 @@ An interactive **OpenStreetMap viewer** and **spatial data science dashboard** b
 
 ### 1. Interactive Map & Viewport Querying
 - **Dynamic Bounding Box Tracking**: Automatically captures the visible map viewport (`[south, west, north, east]`) as you pan and zoom.
+- **Multiple Basemap Styles**: Seamlessly switch between 6 distinct map layer styles:
+  - 🌙 **CARTO Dark Matter** (modern dark-theme basemap)
+  - 🧭 **CARTO Voyager** (crisp, colorful cartography)
+  - ☀️ **CARTO Positron Light** (clean, high-contrast light theme)
+  - 🌍 **OpenStreetMap Standard** (official detailed community styling)
+  - 🛰️ **Esri World Imagery** (high-resolution satellite & aerial photography)
+  - ⛰️ **OpenTopoMap** (topographic contours, relief shading & elevation)
 - **Categorized Overpass QL Generator**: Generates optimized Overpass queries filtered by bounding box and selected categories.
 - **Custom Map Markers**: Rendered with distinct category colors and SVG icons, spiderfy/popups containing full OSM metadata, address, contact, and direct links to OpenStreetMap.
 - **Predefined Cities**: Instant navigation to Amsterdam, New York (Manhattan), Paris, and Tokyo.
@@ -82,7 +89,7 @@ antigravity/
 │   │   └── style.css         # Modern dark-mode UI stylesheet
 │   └── js/
 │       ├── app.js            # Main application controller
-│       ├── map.js            # Leaflet map manager, POI markers & bounding box
+│       ├── map.js            # Leaflet map manager, multi-basemap support & markers
 │       ├── charts.js         # Zero-dependency Canvas charts (Donut & Bar)
 │       └── api.js            # REST API client & browser fallback
 └── tests/

@@ -24,10 +24,20 @@ class AppController {
   async init() {
     this.initElements();
     this.initTabs();
+
+    // Initialize Map with viewport and basemap listeners
+    this.mapManager = new MapManager(
+      'map',
+      (bbox) => this.handleViewportChange(bbox),
+      (basemapKey) => this.handleBasemapChange(basemapKey)
+    );
+
+    if (this.elBasemapSelect) {
+      this.elBasemapSelect.value = this.mapManager.currentBasemapKey;
+    }
+
     this.bindEvents();
 
-    // Initialize Map
-    this.mapManager = new MapManager('map', (bbox) => this.handleViewportChange(bbox));
     this.currentBbox = this.mapManager.getViewportBbox();
     this.updateBboxDisplay(this.currentBbox);
 
@@ -47,6 +57,7 @@ class AppController {
     this.elAutoQueryToggle = document.getElementById('toggle-auto-query');
     this.elMockToggle = document.getElementById('toggle-mock');
     this.elCitySelect = document.getElementById('city-select');
+    this.elBasemapSelect = document.getElementById('basemap-select');
     this.elToast = document.getElementById('toast');
     this.elTableSearch = document.getElementById('table-search');
     this.elTableBody = document.getElementById('table-body');
@@ -103,6 +114,15 @@ class AppController {
       this.executeQuery();
     });
 
+    if (this.elBasemapSelect) {
+      this.elBasemapSelect.addEventListener('change', (e) => {
+        const key = e.target.value;
+        this.mapManager.setBasemap(key);
+        const label = this.elBasemapSelect.options[this.elBasemapSelect.selectedIndex]?.text || key;
+        this.showToast(`Basemap switched to ${label}`);
+      });
+    }
+
     document.getElementById('btn-select-all').addEventListener('click', () => {
       this.categories.forEach(c => this.selectedCategories.add(c.id));
       this.renderCategoryList();
@@ -137,6 +157,12 @@ class AppController {
         this.renderAnalyticsCharts();
       }
     });
+  }
+
+  handleBasemapChange(key) {
+    if (this.elBasemapSelect && this.elBasemapSelect.value !== key) {
+      this.elBasemapSelect.value = key;
+    }
   }
 
   async loadCategories() {

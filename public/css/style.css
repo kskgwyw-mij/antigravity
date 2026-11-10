@@ -642,3 +642,41 @@ body {
   transform: scale(1.25);
   z-index: 1000 !important;
 }
+
+/* Custom Leaflet Layer Control Dark Styling */
+.leaflet-control-layers {
+  background: rgba(15, 23, 42, 0.92) !important;
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-color) !important;
+  border-radius: 8px !important;
+  color: var(--text-main) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+  font-family: var(--font-family) !important;
+  font-size: 12px !important;
+  transition: all 0.2s ease;
+}
+
+.leaflet-control-layers-expanded {
+  padding: 10px 14px !important;
+}
+
+.leaflet-control-layers-base label,
+.leaflet-control-layers-overlays label {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  cursor: pointer !important;
+  padding: 4px 0 !important;
+  color: var(--text-main) !important;
+}
+
+.leaflet-control-layers-separator {
+  border-top: 1px solid var(--border-color) !important;
+  margin: 6px 0 !important;
+}
+
+.leaflet-control-layers-toggle {
+  background-color: #1e293b !important;
+  border-radius: 6px !important;
+  border: 1px solid var(--border-color) !important;
+}

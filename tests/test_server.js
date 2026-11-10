@@ -221,6 +221,19 @@ await asyncTest('GET / serves frontend index.html', async () => {
   assert.ok(res.body.includes('OpenStreetMap Overpass Data Science Dashboard'));
 });
 
+await asyncTest('Strict path containment prevents directory traversal', async () => {
+  const res1 = await makeRequest('/../package.json');
+  assert.ok(res1.statusCode === 403 || res1.statusCode === 404);
+  assert.ok(!res1.body.includes('"osm-overpass-dashboard"'));
+
+  const res2 = await makeRequest('/%2e%2e/server.js');
+  assert.ok(res2.statusCode === 403 || res2.statusCode === 404);
+  assert.ok(!res2.body.includes('PUBLIC_DIR'));
+
+  const res3 = await makeRequest('/..%2F..%2Fpackage.json');
+  assert.ok(res3.statusCode === 403 || res3.statusCode === 404 || res3.statusCode === 400);
+});
+
 console.log(`\nTests completed: ${passed} passed, ${failed} failed.\n`);
 
 server.close();

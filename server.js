@@ -24,7 +24,7 @@ import { MOCK_CITIES, generateCityMockData } from './lib/mockData.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const PUBLIC_DIR = path.join(__dirname, 'public');
+const PUBLIC_DIR = path.resolve(__dirname, 'public');
 
 const PORT = process.env.PORT || 3000;
 
@@ -71,22 +71,38 @@ function parseJsonBody(req) {
 }
 
 function serveStatic(req, res) {
-  let reqPath = req.url.split('?')[0];
+  let reqPath;
+  try {
+    reqPath = decodeURIComponent(req.url.split('?')[0]);
+  } catch (err) {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    return res.end('400 Bad Request');
+  }
+
   if (reqPath === '/' || reqPath === '') {
     reqPath = '/index.html';
   }
 
-  const safePath = path.normalize(reqPath).replace(/^(\.\.[/\\])+/, '');
-  const filePath = path.join(PUBLIC_DIR, safePath);
+  // Strip null bytes to guard against poison null byte attacks
+  const sanitizedPath = reqPath.replace(/\0/g, '');
 
-  fs.stat(filePath, (err, stats) => {
+  // Resolve target absolute path within PUBLIC_DIR
+  const resolvedPublicDir = path.resolve(PUBLIC_DIR);
+  const resolvedPath = path.resolve(resolvedPublicDir, '.' + path.normalize('/' + sanitizedPath));
+
+  // Strict containment verification: path must reside strictly within PUBLIC_DIR
+  if (!resolvedPath.startsWith(resolvedPublicDir + path.sep) && resolvedPath !== resolvedPublicDir) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' });
+    return res.end('403 Forbidden');
+  }
+
+  fs.stat(resolvedPath, (err, stats) => {
     if (err || !stats.isFile()) {
       res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('404 Not Found');
-      return;
+      return res.end('404 Not Found');
     }
 
-    const ext = path.extname(filePath).toLowerCase();
+    const ext = path.extname(resolvedPath).toLowerCase();
     const contentType = MIME_TYPES[ext] || 'application/octet-stream';
 
     res.writeHead(200, {
@@ -95,7 +111,13 @@ function serveStatic(req, res) {
       'Cache-Control': 'no-cache'
     });
 
-    const stream = fs.createReadStream(filePath);
+    const stream = fs.createReadStream(resolvedPath);
+    stream.on('error', () => {
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'text/plain' });
+        res.end('500 Internal Server Error');
+      }
+    });
     stream.pipe(res);
   });
 }
