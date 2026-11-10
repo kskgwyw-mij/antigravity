@@ -1,0 +1,22 @@
+{
+  "name": "osm-overpass-dashboard",
+  "version": "1.0.0",
+  "description": "OpenStreetMap viewer and spatial data science dashboard using visible Overpass categories",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node tests/test_server.js"
+  },
+  "keywords": [
+    "openstreetmap",
+    "overpass-api",
+    "gis",
+    "data-science",
+    "dashboard",
+    "spatial-analysis"
+  ],
+  "author": "",
+  "license": "MIT"
+}

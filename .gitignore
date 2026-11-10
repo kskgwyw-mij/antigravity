@@ -59,6 +59,10 @@ web_modules/
 # Optional REPL history
 .node_repl_history
 
+# SQLite databases
+*.sqlite
+*.sqlite-journal
+
 # Output of 'npm pack'
 *.tgz
 
@@ -147,3 +151,15 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# IDEs and Editors
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+

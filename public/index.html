@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenStreetMap Overpass Data Science Dashboard</title>
+  
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <!-- App Styles -->
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="app-header">
+    <div class="brand-section">
+      <span class="logo-badge">🗺️</span>
+      <div>
+        <div class="brand-title">OSM Spatial Analytics</div>
+        <div class="brand-subtitle">Overpass Categories & Data Science Dashboard</div>
+      </div>
+    </div>
+
+    <div class="header-center">
+      <select id="city-select" class="city-select" title="Jump to predefined city">
+        <option value="amsterdam">Amsterdam</option>
+        <option value="manhattan">New York</option>
+        <option value="paris">Paris</option>
+        <option value="tokyo">Tokyo</option>
+      </select>
+
+      <div class="viewport-info">
+        <span>📐 Viewport Area:</span>
+        <strong id="pill-area">-- km²</strong>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <label class="toggle-label" title="Automatically query Overpass when you finish panning or zooming">
+        <input type="checkbox" id="toggle-auto-query">
+        <span>Auto-query on pan</span>
+      </label>
+
+      <label class="toggle-label" title="Toggle between live Overpass API queries and offline simulated datasets">
+        <input type="checkbox" id="toggle-mock">
+        <span>Offline Demo</span>
+      </label>
+
+      <button id="btn-query" class="btn btn-primary" title="Execute Overpass query for the currently visible bounding box">
+        <span>🔍</span> Query Visible Area
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <div class="app-container">
+
+    <!-- Left Sidebar: Overpass Categories -->
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">
+          <span>Categories Filter</span>
+        </div>
+        <div class="category-list" id="category-list">
+          <!-- Populated dynamically via JS -->
+        </div>
+        <div class="category-actions">
+          <button id="btn-select-all" class="btn btn-secondary btn-xs">Select All</button>
+          <button id="btn-clear-all" class="btn btn-secondary btn-xs">Clear All</button>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">Visible Bounding Box</div>
+        <div class="bbox-info-box">
+          <div>North: <span id="bbox-north">--</span></div>
+          <div>South: <span id="bbox-south">--</span></div>
+          <div>West: <span id="bbox-west">--</span></div>
+          <div>East: <span id="bbox-east">--</span></div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Center Map -->
+    <main class="map-container-wrapper">
+      <div id="map"></div>
+    </main>
+
+    <!-- Right Panel: Data Science & Analytics Dashboard -->
+    <aside class="dashboard-panel">
+      
+      <!-- Top KPI Summary Cards -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <span class="kpi-label">Total Features</span>
+          <span class="kpi-value" id="kpi-total">0</span>
+          <span class="kpi-unit">POIs in view</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Spatial Area</span>
+          <span class="kpi-value" id="kpi-area">0</span>
+          <span class="kpi-unit">km²</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">POI Density</span>
+          <span class="kpi-value" id="kpi-density">0</span>
+          <span class="kpi-unit">features / km²</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Shannon Diversity</span>
+          <span class="kpi-value" id="kpi-diversity">0</span>
+          <span class="kpi-unit">score (0 - 1)</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Completeness</span>
+          <span class="kpi-value" id="kpi-completeness">0%</span>
+          <span class="kpi-unit">OSM tags</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-label">Top Category</span>
+          <span class="kpi-value" style="font-size: 13px; text-transform: capitalize;" id="kpi-top-cat">None</span>
+          <span class="kpi-unit">dominant</span>
+        </div>
+      </div>
+
+      <!-- Tabs Navigation -->
+      <nav class="dashboard-tabs">
+        <button class="tab-btn active" data-tab="tab-analytics">📊 Analytics</button>
+        <button class="tab-btn" data-tab="tab-table">📋 Features Table</button>
+        <button class="tab-btn" data-tab="tab-query">💻 Overpass QL</button>
+        <button class="tab-btn" data-tab="tab-export">💾 Export</button>
+      </nav>
+
+      <!-- Tab Contents -->
+      <div class="tab-content-area">
+        
+        <!-- Tab 1: Analytics & Visualizations -->
+        <div id="tab-analytics" class="tab-pane active">
+          
+          <!-- Category Breakdown Chart -->
+          <div class="analytics-widget">
+            <div class="widget-title">
+              <span>Category Distribution</span>
+              <span style="font-size: 10px; color: var(--text-muted);">Donut representation</span>
+            </div>
+            <div class="canvas-chart-container">
+              <canvas id="chart-category"></canvas>
+            </div>
+          </div>
+
+          <!-- Top Sub-tags Frequency Chart -->
+          <div class="analytics-widget">
+            <div class="widget-title">
+              <span>Top Amenities & Sub-tags</span>
+              <span style="font-size: 10px; color: var(--text-muted);">Frequency</span>
+            </div>
+            <div class="canvas-chart-container">
+              <canvas id="chart-subtags"></canvas>
+            </div>
+          </div>
+
+          <!-- Spatial Quadrant Density -->
+          <div class="analytics-widget">
+            <div class="widget-title">
+              <span>Spatial Quadrant Distribution</span>
+              <span style="font-size: 10px; color: var(--text-muted);">Density by compass sector</span>
+            </div>
+            <div class="quadrant-grid" id="quadrant-grid">
+              <!-- Populated by JS -->
+            </div>
+          </div>
+
+          <!-- Metadata Quality & Completeness -->
+          <div class="analytics-widget">
+            <div class="widget-title">
+              <span>OSM Tag Quality & Completeness</span>
+              <span style="font-size: 10px; color: var(--text-muted);">Richness index</span>
+            </div>
+            <div class="progress-group">
+              <div class="progress-item">
+                <div class="progress-label-row">
+                  <span>Named Features:</span>
+                  <strong id="comp-val-name">0%</strong>
+                </div>
+                <div class="progress-track"><div id="comp-fill-name" class="progress-fill" style="width: 0%;"></div></div>
+              </div>
+
+              <div class="progress-item">
+                <div class="progress-label-row">
+                  <span>Street / Postal Address:</span>
+                  <strong id="comp-val-address">0%</strong>
+                </div>
+                <div class="progress-track"><div id="comp-fill-address" class="progress-fill" style="width: 0%;"></div></div>
+              </div>
+
+              <div class="progress-item">
+                <div class="progress-label-row">
+                  <span>Opening Hours:</span>
+                  <strong id="comp-val-hours">0%</strong>
+                </div>
+                <div class="progress-track"><div id="comp-fill-hours" class="progress-fill" style="width: 0%;"></div></div>
+              </div>
+
+              <div class="progress-item">
+                <div class="progress-label-row">
+                  <span>Wheelchair Accessibility:</span>
+                  <strong id="comp-val-wheelchair">0%</strong>
+                </div>
+                <div class="progress-track"><div id="comp-fill-wheelchair" class="progress-fill" style="width: 0%;"></div></div>
+              </div>
+
+              <div class="progress-item">
+                <div class="progress-label-row">
+                  <span>Website / Phone Contact:</span>
+                  <strong id="comp-val-contact">0%</strong>
+                </div>
+                <div class="progress-track"><div id="comp-fill-contact" class="progress-fill" style="width: 0%;"></div></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Tab 2: Features Table -->
+        <div id="tab-table" class="tab-pane">
+          <div class="table-toolbar">
+            <input type="text" id="table-search" class="search-input" placeholder="Filter features by name or tag...">
+          </div>
+          <div class="table-wrapper">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Category</th>
+                  <th>Primary Tag</th>
+                  <th>Coordinates</th>
+                </tr>
+              </thead>
+              <tbody id="table-body">
+                <!-- Populated via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tab 3: Overpass QL Query -->
+        <div id="tab-query" class="tab-pane">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-size: 12px; color: var(--text-muted);">Generated Overpass QL query:</span>
+            <button id="btn-copy-ql" class="btn btn-secondary btn-xs">Copy QL</button>
+          </div>
+          <pre class="code-box" id="ql-code">// Query will appear here</pre>
+        </div>
+
+        <!-- Tab 4: Export -->
+        <div id="tab-export" class="tab-pane">
+          <div class="analytics-widget">
+            <div class="widget-title">Export Viewport Data</div>
+            <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 14px;">
+              Download features currently visible in this bounding box for GIS software or statistical analysis.
+            </p>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+              <button id="btn-export-geojson" class="btn btn-primary">
+                <span>🌐</span> Export as GeoJSON (for QGIS, Kepler.gl, GeoPandas)
+              </button>
+              <button id="btn-export-csv" class="btn btn-secondary">
+                <span>📊</span> Export as CSV (for Excel, Pandas, R)
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast-msg"></div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <!-- App JS -->
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>
