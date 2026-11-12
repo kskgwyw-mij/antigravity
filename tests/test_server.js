@@ -5,9 +5,10 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
-import { CATEGORIES, buildOverpassQL, categorizeElement, normalizeElement } from '../lib/overpass.js';
+import { CATEGORIES, buildOverpassQL, categorizeElement, normalizeElement, validateCustomQL } from '../lib/overpass.js';
 import { calculateBboxArea, haversineDistance, computeAnalytics, featuresToGeoJSON, featuresToCSV } from '../lib/analytics.js';
 import { QueryCache } from '../lib/cache.js';
+import { RateLimiter } from '../lib/rateLimiter.js';
 import { generateCityMockData, remapMockDataToBbox } from '../lib/mockData.js';
 import server from '../server.js';
 
@@ -157,6 +158,37 @@ test('QueryCache evicts oldest entries beyond the memory cap', () => {
   cache.close();
 });
 
+test('validateCustomQL accepts a well-formed query with bbox', () => {
+  const ql = '[out:json][timeout:25];nwr["amenity"="cafe"](52.36,4.87,52.38,4.91);out center;';
+  assert.equal(validateCustomQL(ql), null);
+});
+
+test('validateCustomQL rejects malformed or unsafe queries', () => {
+  assert.notEqual(validateCustomQL(''), null);
+  assert.notEqual(validateCustomQL('nwr["amenity"];out;'), null);
+  assert.notEqual(validateCustomQL('[out:xml][timeout:25];nwr(52.36,4.87,52.38,4.91);'), null);
+  assert.notEqual(validateCustomQL('[out:json][timeout:120];nwr(52.36,4.87,52.38,4.91);'), null);
+  assert.notEqual(validateCustomQL('[out:json];nwr["amenity"];out;'), null);
+  assert.notEqual(validateCustomQL('[out:json];' + 'x'.repeat(10001)), null);
+  assert.notEqual(validateCustomQL('[out:json];node(52.9,4.87,52.38,4.91);'), null);
+});
+
+test('RateLimiter blocks requests beyond the cap and recovers after the window', async () => {
+  const limiter = new RateLimiter({ windowMs: 50, max: 2 });
+  try {
+    assert.equal(limiter.check('ip1').allowed, true);
+    assert.equal(limiter.check('ip1').allowed, true);
+    assert.equal(limiter.check('ip1').allowed, false);
+
+    assert.equal(limiter.check('ip2').allowed, true);
+
+    await new Promise(resolve => setTimeout(resolve, 60));
+    assert.equal(limiter.check('ip1').allowed, true);
+  } finally {
+    limiter.close();
+  }
+});
+
 test('remapMockDataToBbox scales mock features into the requested bbox', () => {
   const mock = generateCityMockData('amsterdam');
   const bbox = [35.6500, 139.6900, 35.6700, 139.7150];
@@ -238,6 +270,36 @@ await asyncTest('POST /api/query mock mode returns features within the requested
     assert.ok(f.lat >= bbox[0] && f.lat <= bbox[2]);
     assert.ok(f.lon >= bbox[1] && f.lon <= bbox[3]);
   }
+});
+
+await asyncTest('POST /api/query rejects unsafe customQL', async () => {
+  const bbox = [52.3610, 4.8750, 52.3800, 4.9150];
+  const res = await makeRequest('/api/query', 'POST', { bbox, customQL: '[out:json];nwr["amenity"];out;' });
+  assert.equal(res.statusCode, 400);
+  const json = JSON.parse(res.body);
+  assert.ok(json.error.includes('bbox'));
+});
+
+await asyncTest('POST /api/cache/clear rejects cross-origin requests', async () => {
+  const res = await new Promise((resolve, reject) => {
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port: TEST_PORT,
+      path: '/api/cache/clear',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Origin': 'https://evil.example.com'
+      }
+    }, res => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => resolve({ statusCode: res.statusCode, body: data }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+  assert.equal(res.statusCode, 403);
 });
 
 await asyncTest('POST /api/analytics rejects invalid bbox', async () => {
