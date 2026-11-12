@@ -40,6 +40,14 @@ async function asyncTest(name, fn) {
 
 console.log('\n--- Running Unit & Integration Tests ---\n');
 
+// Start server on an ephemeral port so tests never collide with a running
+// instance or a PORT set in the environment.
+await new Promise((resolve, reject) => {
+  server.once('error', reject);
+  server.listen(0, '127.0.0.1', resolve);
+});
+const TEST_PORT = server.address().port;
+
 // 1. Overpass QL & Categorization Tests
 test('Categories definition has 8 rich categories', () => {
   const keys = Object.keys(CATEGORIES);
@@ -140,8 +148,8 @@ test('QueryCache stores and retrieves cached query results', () => {
 async function makeRequest(path, method = 'GET', body = null) {
   return new Promise((resolve, reject) => {
     const req = http.request({
-      hostname: 'localhost',
-      port: 3000,
+      hostname: '127.0.0.1',
+      port: TEST_PORT,
       path,
       method,
       headers: {
@@ -236,5 +244,5 @@ await asyncTest('Strict path containment prevents directory traversal', async ()
 
 console.log(`\nTests completed: ${passed} passed, ${failed} failed.\n`);
 
-server.close();
+await new Promise(resolve => server.close(resolve));
 process.exit(failed > 0 ? 1 : 0);

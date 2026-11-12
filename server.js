@@ -6,7 +6,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { queryCache } from './lib/cache.js';
 import {
@@ -321,12 +321,16 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`\n===========================================================`);
-  console.log(`🚀 OpenStreetMap Data Science Dashboard is running!`);
-  console.log(`📍 URL: http://localhost:${PORT}`);
-  console.log(`📡 Overpass categories and spatial analytics engine active.`);
-  console.log(`===========================================================\n`);
-});
+const isMainProcess = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isMainProcess) {
+  server.listen(PORT, () => {
+    console.log(`\n===========================================================`);
+    console.log(`🚀 OpenStreetMap Data Science Dashboard is running!`);
+    console.log(`📍 URL: http://localhost:${PORT}`);
+    console.log(`📡 Overpass categories and spatial analytics engine active.`);
+    console.log(`===========================================================\n`);
+  });
+}
 
 export default server;
