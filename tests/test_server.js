@@ -8,7 +8,7 @@ import http from 'node:http';
 import { CATEGORIES, buildOverpassQL, categorizeElement, normalizeElement } from '../lib/overpass.js';
 import { calculateBboxArea, haversineDistance, computeAnalytics, featuresToGeoJSON, featuresToCSV } from '../lib/analytics.js';
 import { QueryCache } from '../lib/cache.js';
-import { generateCityMockData } from '../lib/mockData.js';
+import { generateCityMockData, remapMockDataToBbox } from '../lib/mockData.js';
 import server from '../server.js';
 
 let passed = 0;
@@ -39,6 +39,14 @@ async function asyncTest(name, fn) {
 }
 
 console.log('\n--- Running Unit & Integration Tests ---\n');
+
+// Start server on an ephemeral port so tests never collide with a running
+// instance or a PORT set in the environment.
+await new Promise((resolve, reject) => {
+  server.once('error', reject);
+  server.listen(0, '127.0.0.1', resolve);
+});
+const TEST_PORT = server.address().port;
 
 // 1. Overpass QL & Categorization Tests
 test('Categories definition has 8 rich categories', () => {
@@ -134,14 +142,40 @@ test('QueryCache stores and retrieves cached query results', () => {
 
   cache.delete(key);
   assert.equal(cache.get(key), null);
+  cache.close();
+});
+
+test('QueryCache evicts oldest entries beyond the memory cap', () => {
+  const cache = new QueryCache(':memory:', 60 * 60 * 1000, 2);
+  cache.set('k1', '0,0,1,1', [], { i: 1 });
+  cache.set('k2', '0,0,1,1', [], { i: 2 });
+  cache.set('k3', '0,0,1,1', [], { i: 3 });
+
+  assert.equal(cache.memoryCache.size, 2);
+  assert.ok(!cache.memoryCache.has('k1'));
+  assert.equal(cache.get('k3').i, 3);
+  cache.close();
+});
+
+test('remapMockDataToBbox scales mock features into the requested bbox', () => {
+  const mock = generateCityMockData('amsterdam');
+  const bbox = [35.6500, 139.6900, 35.6700, 139.7150];
+  const remapped = remapMockDataToBbox(mock, bbox);
+
+  assert.deepEqual(remapped.bbox, bbox);
+  assert.equal(remapped.features.length, mock.features.length);
+  for (const f of remapped.features) {
+    assert.ok(f.lat > 35 && f.lat < 36, `lat ${f.lat} outside Tokyo bbox`);
+    assert.ok(f.lon > 139 && f.lon < 140, `lon ${f.lon} outside Tokyo bbox`);
+  }
 });
 
 // 4. Server API Integration Tests
 async function makeRequest(path, method = 'GET', body = null) {
   return new Promise((resolve, reject) => {
     const req = http.request({
-      hostname: 'localhost',
-      port: 3000,
+      hostname: '127.0.0.1',
+      port: TEST_PORT,
       path,
       method,
       headers: {
@@ -181,6 +215,37 @@ await asyncTest('GET /api/cities returns predefined demo cities', async () => {
   assert.ok(json.success);
   assert.ok(json.cities.amsterdam);
   assert.ok(json.cities.manhattan);
+});
+
+await asyncTest('POST /api/query rejects invalid bbox values', async () => {
+  const res1 = await makeRequest('/api/query', 'POST', { bbox: [9999, -9999, 0, 0], useMock: true });
+  assert.equal(res1.statusCode, 400);
+
+  const res2 = await makeRequest('/api/query', 'POST', { bbox: ['a', 'b', 'c', 'd'], useMock: true });
+  assert.equal(res2.statusCode, 400);
+
+  const res3 = await makeRequest('/api/query', 'POST', { bbox: [52.38, 4.87, 52.36, 4.91], useMock: true });
+  assert.equal(res3.statusCode, 400);
+});
+
+await asyncTest('POST /api/query mock mode returns features within the requested bbox', async () => {
+  const bbox = [35.6500, 139.6900, 35.6700, 139.7150];
+  const res = await makeRequest('/api/query', 'POST', { bbox, categories: [], useMock: true });
+  assert.equal(res.statusCode, 200);
+  const json = JSON.parse(res.body);
+  assert.ok(json.features.length > 0);
+  for (const f of json.features) {
+    assert.ok(f.lat >= bbox[0] && f.lat <= bbox[2]);
+    assert.ok(f.lon >= bbox[1] && f.lon <= bbox[3]);
+  }
+});
+
+await asyncTest('POST /api/analytics rejects invalid bbox', async () => {
+  const res1 = await makeRequest('/api/analytics', 'POST', { features: [], bbox: null });
+  assert.equal(res1.statusCode, 400);
+
+  const res2 = await makeRequest('/api/analytics', 'POST', { features: [], bbox: [52.38, 4.87, 52.36, 4.91] });
+  assert.equal(res2.statusCode, 400);
 });
 
 await asyncTest('POST /api/query returns features and data science analytics', async () => {
@@ -236,5 +301,5 @@ await asyncTest('Strict path containment prevents directory traversal', async ()
 
 console.log(`\nTests completed: ${passed} passed, ${failed} failed.\n`);
 
-server.close();
+await new Promise(resolve => server.close(resolve));
 process.exit(failed > 0 ? 1 : 0);
