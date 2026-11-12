@@ -20,7 +20,7 @@ import {
   featuresToGeoJSON,
   featuresToCSV
 } from './lib/analytics.js';
-import { MOCK_CITIES, generateCityMockData } from './lib/mockData.js';
+import { MOCK_CITIES, generateCityMockData, remapMockDataToBbox } from './lib/mockData.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,17 +49,46 @@ function sendJson(res, statusCode, data) {
   res.end(JSON.stringify(data));
 }
 
+function validateBbox(bbox) {
+  if (!Array.isArray(bbox) || bbox.length !== 4) {
+    return 'bbox array [south, west, north, east] is required';
+  }
+  const nums = bbox.map(Number);
+  if (nums.some(n => !Number.isFinite(n))) {
+    return 'bbox values must be finite numbers';
+  }
+  const [south, west, north, east] = nums;
+  if (south < -90 || south > 90 || north < -90 || north > 90) {
+    return 'latitude values must be within [-90, 90]';
+  }
+  if (west < -180 || west > 180 || east < -180 || east > 180) {
+    return 'longitude values must be within [-180, 180]';
+  }
+  if (south >= north) {
+    return 'south must be less than north';
+  }
+  if (west >= east) {
+    return 'west must be less than east';
+  }
+  return null;
+}
+
 function parseJsonBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
+    let settled = false;
     req.on('data', chunk => {
+      if (settled) return;
       body += chunk;
       if (body.length > 5 * 1024 * 1024) {
-        // 5MB safeguard
+        // 5MB safeguard: stop reading and drop the connection
+        settled = true;
+        req.destroy();
         reject(new Error('Payload too large'));
       }
     });
     req.on('end', () => {
+      if (settled) return;
       try {
         resolve(body ? JSON.parse(body) : {});
       } catch (err) {
@@ -173,8 +202,9 @@ const server = http.createServer(async (req, res) => {
       const body = await parseJsonBody(req);
       const { bbox, categories = [], useMock = false, customQL = null } = body;
 
-      if (!bbox || !Array.isArray(bbox) || bbox.length !== 4) {
-        return sendJson(res, 400, { success: false, error: 'bbox array [south, west, north, east] is required' });
+      const bboxError = validateBbox(bbox);
+      if (bboxError) {
+        return sendJson(res, 400, { success: false, error: bboxError });
       }
 
       // Check Cache
@@ -204,7 +234,7 @@ const server = http.createServer(async (req, res) => {
 
       // If mock mode is requested
       if (useMock) {
-        const mockResult = generateCityMockData('amsterdam');
+        const mockResult = remapMockDataToBbox(generateCityMockData('amsterdam'), bbox);
         const analytics = computeAnalytics(mockResult.features, bbox);
         const result = {
           success: true,
@@ -256,7 +286,7 @@ const server = http.createServer(async (req, res) => {
       } catch (err) {
         console.warn('Overpass live query failed:', err.message);
         // Fall back gracefully with clear message and sample data
-        const mock = generateCityMockData('amsterdam');
+        const mock = remapMockDataToBbox(generateCityMockData('amsterdam'), bbox);
         const analytics = computeAnalytics(mock.features, bbox);
 
         return sendJson(res, 200, {
@@ -277,8 +307,9 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/analytics' && method === 'POST') {
       const body = await parseJsonBody(req);
       const { features = [], bbox } = body;
-      if (!bbox) {
-        return sendJson(res, 400, { success: false, error: 'bbox is required' });
+      const bboxError = validateBbox(bbox);
+      if (bboxError) {
+        return sendJson(res, 400, { success: false, error: bboxError });
       }
       const analytics = computeAnalytics(features, bbox);
       return sendJson(res, 200, { success: true, analytics });
