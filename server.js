@@ -6,6 +6,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { queryCache } from './lib/cache.js';
@@ -13,8 +14,10 @@ import {
   CATEGORIES,
   buildOverpassQL,
   normalizeElement,
-  executeOverpassQuery
+  executeOverpassQuery,
+  validateCustomQL
 } from './lib/overpass.js';
+import { RateLimiter } from './lib/rateLimiter.js';
 import {
   computeAnalytics,
   featuresToGeoJSON,
@@ -27,6 +30,34 @@ const __dirname = path.dirname(__filename);
 const PUBLIC_DIR = path.resolve(__dirname, 'public');
 
 const PORT = process.env.PORT || 3000;
+const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS) || 60 * 1000;
+const QUERY_RATE_LIMIT_MAX = Number(process.env.QUERY_RATE_LIMIT_MAX) || 30;
+const CACHE_CLEAR_RATE_LIMIT_MAX = Number(process.env.CACHE_CLEAR_RATE_LIMIT_MAX) || 2;
+
+const queryRateLimiter = new RateLimiter({ windowMs: RATE_LIMIT_WINDOW_MS, max: QUERY_RATE_LIMIT_MAX });
+const cacheClearRateLimiter = new RateLimiter({ windowMs: RATE_LIMIT_WINDOW_MS, max: CACHE_CLEAR_RATE_LIMIT_MAX });
+
+function getClientKey(req) {
+  return req.socket?.remoteAddress || 'unknown';
+}
+
+function enforceRateLimit(req, res, limiter) {
+  const result = limiter.check(getClientKey(req));
+  if (result.allowed) return true;
+  res.setHeader('Retry-After', Math.ceil(result.retryAfterMs / 1000));
+  sendJson(res, 429, { success: false, error: 'Too many requests. Please retry later.' });
+  return false;
+}
+
+function isSameOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  try {
+    return new URL(origin).host === req.headers.host;
+  } catch (err) {
+    return false;
+  }
+}
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=UTF-8',
@@ -192,15 +223,28 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === '/api/cache/clear' && method === 'POST') {
+      if (!isSameOrigin(req)) {
+        return sendJson(res, 403, { success: false, error: 'Cross-origin cache clear is not allowed' });
+      }
+      if (!enforceRateLimit(req, res, cacheClearRateLimiter)) return;
       queryCache.clear();
       return sendJson(res, 200, { success: true, message: 'Cache cleared' });
     }
 
     // 4. Overpass Query Endpoint
     if (pathname === '/api/query' && method === 'POST') {
+      if (!enforceRateLimit(req, res, queryRateLimiter)) return;
+
       const startTime = Date.now();
       const body = await parseJsonBody(req);
       const { bbox, categories = [], useMock = false, customQL = null } = body;
+
+      if (customQL !== null && customQL !== undefined) {
+        const qlError = validateCustomQL(customQL);
+        if (qlError) {
+          return sendJson(res, 400, { success: false, error: qlError });
+        }
+      }
 
       const bboxError = validateBbox(bbox);
       if (bboxError) {
@@ -209,7 +253,7 @@ const server = http.createServer(async (req, res) => {
 
       // Check Cache
       const cacheKey = customQL
-        ? `custom:${customQL}`
+        ? `custom:${crypto.createHash('sha256').update(customQL).digest('hex')}`
         : `${bbox.map(n => Number(n).toFixed(5)).join(',')}:${categories.sort().join(',')}`;
 
       if (!useMock) {
