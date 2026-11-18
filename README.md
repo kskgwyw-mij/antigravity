@@ -42,7 +42,7 @@ An interactive **OpenStreetMap viewer** and **spatial data science dashboard** b
 ### 4. High-Performance Architecture
 - **Pure Node.js**: Built entirely with Node.js built-in modules (`node:http`, `node:sqlite`, `node:fs`, `node:path`, `node:url`). Zero external npm dependencies required!
 - **Persistent SQLite Caching**: Caches Overpass query results with TTL using native `node:sqlite` to prevent rate-limiting and eliminate redundant requests.
-- **Multi-Mirror Overpass Failover**: Automatically cascades between public Overpass instances (`overpass-api.de`, `overpass.kumi.systems`, `maps.mail.ru`).
+- **Multi-Mirror Overpass Failover**: Automatically cascades between public Overpass instances (`overpass-api.de`, `overpass.kumi.systems`).
 - **Offline / Sandbox Resilience**: Includes offline demo datasets and direct-in-browser querying fallback.
 - **Data Export**: One-click export to **GeoJSON** (for QGIS, Kepler.gl, GeoPandas) and **CSV** (for Pandas, Excel, R).
 

@@ -16,6 +16,8 @@ class AppController {
     this.autoQuery = false;
     this.useMock = false;
     this.categoryColorMap = {};
+    this.featureCache = new Map();
+    this.featureCacheLimit = 50;
 
     this.mapManager = null;
     this.init();
@@ -265,8 +267,22 @@ class AppController {
     document.getElementById('pill-area').textContent = `${approxArea} km²`;
   }
 
+  cacheKey(bbox) {
+    return `${bbox.map(n => n.toFixed(5)).join(',')}|${Array.from(this.selectedCategories).sort().join(',')}|${this.useMock ? 'mock' : 'live'}`;
+  }
+
   async executeQuery() {
     if (!this.currentBbox) return;
+
+    // Serve previously fetched viewports directly from the client-side cache
+    const key = this.cacheKey(this.currentBbox);
+    if (this.featureCache.has(key)) {
+      const cached = this.featureCache.get(key);
+      this.featureCache.delete(key);
+      this.featureCache.set(key, cached);
+      this.applyQueryResult(cached, true);
+      return;
+    }
 
     this.elBtnQuery.disabled = true;
     this.elBtnQuery.innerHTML = `<span>⏳</span> Querying...`;
@@ -279,29 +295,15 @@ class AppController {
       });
 
       if (res.success) {
-        this.currentFeatures = res.features || [];
-        this.currentAnalytics = res.analytics;
-
-        // Draw bbox outline & render features on map
-        this.mapManager.drawBboxOverlay(this.currentBbox);
-        this.mapManager.renderFeatures(this.currentFeatures);
-
-        // Update Overpass QL display
-        if (res.qlQuery) {
-          this.elQlCode.textContent = res.qlQuery;
+        // Cache the result for reuse on return to this viewport (offline fallback is
+        // not cached so retries keep hitting the live mirrors)
+        if (res.mode !== 'offline_fallback') {
+          if (this.featureCache.size >= this.featureCacheLimit) {
+            this.featureCache.delete(this.featureCache.keys().next().value);
+          }
+          this.featureCache.set(key, res);
         }
-
-        // Update KPIs and Data Science widgets
-        this.updateKpis(res.analytics, res.count);
-        this.renderAnalyticsCharts();
-        this.renderQuadrants(res.analytics?.quadrants);
-        this.renderCompleteness(res.analytics?.completeness);
-        this.renderTable(this.currentFeatures);
-        this.renderCategoryList();
-
-        const timeStr = res.executionTimeMs ? ` in ${res.executionTimeMs}ms` : '';
-        const sourceStr = res.cached ? ' [Cached]' : (res.mode === 'offline_fallback' ? ' [Offline Demo]' : '');
-        this.showToast(`Loaded ${res.count} features${timeStr}${sourceStr}`);
+        this.applyQueryResult(res);
       } else {
         this.showToast(res.error || 'Query failed', 'error');
       }
@@ -311,6 +313,34 @@ class AppController {
       this.elBtnQuery.disabled = false;
       this.elBtnQuery.innerHTML = `<span>🔍</span> Query Visible Area`;
     }
+  }
+
+  applyQueryResult(res, fromCache = false) {
+    this.currentFeatures = res.features || [];
+    this.currentAnalytics = res.analytics;
+
+    // Draw bbox outline & render features on map
+    this.mapManager.drawBboxOverlay(this.currentBbox);
+    this.mapManager.renderFeatures(this.currentFeatures);
+
+    // Update Overpass QL display
+    if (res.qlQuery) {
+      this.elQlCode.textContent = res.qlQuery;
+    }
+
+    // Update KPIs and Data Science widgets
+    this.updateKpis(res.analytics, res.count);
+    this.renderAnalyticsCharts();
+    this.renderQuadrants(res.analytics?.quadrants);
+    this.renderCompleteness(res.analytics?.completeness);
+    this.renderTable(this.currentFeatures);
+    this.renderCategoryList();
+
+    const timeStr = res.executionTimeMs ? ` in ${res.executionTimeMs}ms` : '';
+    const sourceStr = fromCache ? ' [Local Cache]'
+      : res.cached ? ' [Cached]'
+      : (res.mode === 'offline_fallback' ? ' [Offline Demo]' : '');
+    this.showToast(`Loaded ${res.count} features${timeStr}${sourceStr}`);
   }
 
   updateKpis(analytics, totalCount) {
