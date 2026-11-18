@@ -59,6 +59,7 @@ class AppController {
     this.elAutoQueryToggle = document.getElementById('toggle-auto-query');
     this.elMockToggle = document.getElementById('toggle-mock');
     this.elCitySelect = document.getElementById('city-select');
+    this.elCitySearch = document.getElementById('city-search');
     this.elBasemapSelect = document.getElementById('basemap-select');
     this.elToast = document.getElementById('toast');
     this.elTableSearch = document.getElementById('table-search');
@@ -124,6 +125,13 @@ class AppController {
         this.showToast(`Basemap switched to ${label}`);
       });
     }
+
+    this.elCitySearch.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this.searchCity();
+      }
+    });
 
     document.getElementById('btn-select-all').addEventListener('click', () => {
       this.categories.forEach(c => this.selectedCategories.add(c.id));
@@ -204,6 +212,27 @@ class AppController {
       }
     } catch (err) {
       console.error('Failed to load cities:', err);
+    }
+  }
+
+  async searchCity() {
+    const q = this.elCitySearch.value.trim();
+    if (q.length < 2) return;
+
+    try {
+      const res = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      if (!data.success) {
+        this.showToast(data.error || 'City not found', 'error');
+        return;
+      }
+      const g = data.geocoded;
+      this.currentBbox = [g.south, g.west, g.north, g.east];
+      this.mapManager.setViewport(this.currentBbox);
+      this.showToast(`Found: ${g.displayName}`);
+      this.executeQuery();
+    } catch (err) {
+      this.showToast(`City search failed: ${err.message}`, 'error');
     }
   }
 

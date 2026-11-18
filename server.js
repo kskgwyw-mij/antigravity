@@ -37,6 +37,9 @@ const CACHE_CLEAR_RATE_LIMIT_MAX = Number(process.env.CACHE_CLEAR_RATE_LIMIT_MAX
 const queryRateLimiter = new RateLimiter({ windowMs: RATE_LIMIT_WINDOW_MS, max: QUERY_RATE_LIMIT_MAX });
 const cacheClearRateLimiter = new RateLimiter({ windowMs: RATE_LIMIT_WINDOW_MS, max: CACHE_CLEAR_RATE_LIMIT_MAX });
 
+// In-memory cache for geocoding lookups (keeps Nominatim usage well below 1 req/s)
+const geocodeCache = new Map();
+
 function getClientKey(req) {
   return req.socket?.remoteAddress || 'unknown';
 }
@@ -212,6 +215,34 @@ const server = http.createServer(async (req, res) => {
         success: true,
         cities: MOCK_CITIES
       });
+    }
+
+    // 2b. City Search (Nominatim geocoding proxy)
+    if (pathname === '/api/geocode') {
+      const q = (urlObj.searchParams.get('q') || '').trim();
+      if (q.length < 2) {
+        return sendJson(res, 400, { success: false, error: 'q parameter with at least 2 characters required' });
+      }
+      const key = q.toLowerCase();
+      const cached = geocodeCache.get(key);
+      if (cached) {
+        return sendJson(res, 200, { success: true, geocoded: cached });
+      }
+      const geoUrl = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
+      const geoRes = await fetch(geoUrl, {
+        headers: { 'User-Agent': 'OpenStreetMap-DataScience-Dashboard/1.0' }
+      });
+      const hits = await geoRes.json();
+      if (!Array.isArray(hits) || hits.length === 0) {
+        return sendJson(res, 200, { success: false, error: `No location found for "${q}"` });
+      }
+      const bb = hits[0].boundingbox.map(Number); // [south, north, west, east]
+      const result = {
+        displayName: hits[0].display_name,
+        south: bb[0], west: bb[2], north: bb[1], east: bb[3]
+      };
+      geocodeCache.set(key, result);
+      return sendJson(res, 200, { success: true, geocoded: result });
     }
 
     // 3. Cache Stats & Clear
